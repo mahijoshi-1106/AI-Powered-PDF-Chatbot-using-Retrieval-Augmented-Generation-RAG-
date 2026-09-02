@@ -1,0 +1,17 @@
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langchain-mistralai
+langchain-huggingface
+chromadb
+sentence-transformers
+pypdf
+numpys
+panda
+python-dotenv
+fastapi
+uvicorn
+streamlit
+tqdm
+requests
