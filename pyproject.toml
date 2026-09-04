@@ -8,9 +8,16 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "arxiv<3.0",
     "beautifulsoup4>=4.15.0",
+    "langchain-classic>=1.0.8",
+    "langchain-community>=0.4.2",
+    "langchain-huggingface>=1.2.2",
     "langchain-text-splitters>=1.1.2",
+    "streamlit>=1.63.0",
     "tiktoken>=0.14.0",
+    "torch>=2.14.0",
+    "torchvision>=0.29.0",
 ]
 
 [project.scripts]
