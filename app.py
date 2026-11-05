@@ -1,5 +1,5 @@
 import os
-import shutil
+import gc
 import streamlit as st
 
 from dotenv import load_dotenv
@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_mistralai import ChatMistralAI
+from langchain_chroma import Chroma
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 
 
@@ -22,6 +22,25 @@ CHROMA_DIR = "chroma-db"
 UPLOAD_DIR = "uploads"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def response_text(content):
+    """Return displayable text from a LangChain response content value."""
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if isinstance(block, str):
+                text_parts.append(block)
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                text_parts.append(block["text"])
+            else:
+                raise ValueError("The model returned an unsupported content block.")
+        return "\n".join(text_parts).strip()
+
+    raise ValueError("The model returned an unsupported response format.")
 
 
 # --------------------------------------------------
@@ -72,7 +91,9 @@ if "book_name" not in st.session_state:
 @st.cache_resource
 def load_embedding_model():
 
-    return HuggingFaceEmbeddings()
+    return HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
 
 
 embedding_model = load_embedding_model()
@@ -136,12 +157,25 @@ with st.sidebar:
             progress.progress(50)
 
             # --------------------------------------------------
-            # STEP 3: REMOVE OLD CHROMA DATABASE
+            # STEP 3: CLEAR OLD CHROMA COLLECTION
             # --------------------------------------------------
 
             if os.path.exists(CHROMA_DIR):
-
-                shutil.rmtree(CHROMA_DIR)
+                try:
+                    old_vectorstore = st.session_state.vectorstore or Chroma(
+                        persist_directory=CHROMA_DIR,
+                        embedding_function=embedding_model
+                    )
+                    old_vectorstore.delete_collection()
+                    st.session_state.vectorstore = None
+                    del old_vectorstore
+                    gc.collect()
+                except Exception as error:
+                    st.error(
+                        "Could not clear the existing ChromaDB collection. "
+                        f"Details: {error}"
+                    )
+                    st.stop()
 
             # --------------------------------------------------
             # STEP 4: CREATE CHROMA DATABASE
@@ -216,20 +250,27 @@ else:
     # --------------------------------------------------
 
     retriever = st.session_state.vectorstore.as_retriever(
-        search_type="mmr",
+        search_type="similarity",
         search_kwargs={
-            "k": 4,
-            "fetch_k": 10,
-            "lambda_mult": 0.5
+            "k": 4
         }
     )
 
     # --------------------------------------------------
-    # MISTRAL
+    # GROQ
     # --------------------------------------------------
 
-    llm = ChatMistralAI(
-        model="mistral-small-2506"
+    groq_api_key = os.getenv("GROQ_API_KEY")
+
+    if not groq_api_key:
+        st.error(
+            "GROQ_API_KEY is not configured. Add it to your .env file and restart the app."
+        )
+        st.stop()
+
+    llm = ChatGroq(
+       model="openai/gpt-oss-20b",
+       api_key=groq_api_key
     )
 
     # --------------------------------------------------
@@ -338,7 +379,10 @@ else:
                     formatted_prompt
                 )
 
-                answer = response.content
+                answer = response_text(response.content)
+
+                if not answer:
+                    raise ValueError("The model returned an empty answer.")
 
             st.markdown(answer)
 
